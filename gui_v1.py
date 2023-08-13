@@ -1,4 +1,8 @@
-import os, sys
+import os, sys, pdb
+
+os.environ["OMP_NUM_THREADS"] = "2"
+if sys.platform == "darwin":
+    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -43,16 +47,21 @@ if __name__ == "__main__":
     import torch.nn.functional as F
     import torchaudio.transforms as tat
     from i18n import I18nAuto
+    import rvc_for_realtime
 
     i18n = I18nAuto()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = rvc_for_realtime.config.device
+    # device = torch.device(
+    #     "cuda"
+    #     if torch.cuda.is_available()
+    #     else ("mps" if torch.backends.mps.is_available() else "cpu")
+    # )
     current_dir = os.getcwd()
     inp_q = Queue()
     opt_q = Queue()
     n_cpu = min(cpu_count(), 8)
     for _ in range(n_cpu):
         Harvest(inp_q, opt_q).start()
-    from rvc_for_realtime import RVC
 
     class GUIConfig:
         def __init__(self) -> None:
@@ -68,8 +77,10 @@ if __name__ == "__main__":
             self.I_noise_reduce = False
             self.O_noise_reduce = False
             self.index_rate = 0.3
-            self.n_cpu = min(n_cpu, 8)
+            self.n_cpu = min(n_cpu, 6)
             self.f0method = "harvest"
+            self.sg_input_device = ""
+            self.sg_output_device = ""
 
     class GUI:
         def __init__(self) -> None:
@@ -157,6 +168,7 @@ if __name__ == "__main__":
                                     default_value=data.get("sg_output_device", ""),
                                 ),
                             ],
+                            [sg.Button(i18n("重载设备列表"), key="reload_devices")],
                         ],
                         title=i18n("音频设备(请使用同种类驱动)"),
                     )
@@ -229,7 +241,7 @@ if __name__ == "__main__":
                             [
                                 sg.Text(i18n("采样长度")),
                                 sg.Slider(
-                                    range=(0.12, 2.4),
+                                    range=(0.09, 2.4),
                                     key="block_time",
                                     resolution=0.03,
                                     orientation="h",
@@ -261,7 +273,7 @@ if __name__ == "__main__":
                             [
                                 sg.Text(i18n("额外推理时长")),
                                 sg.Slider(
-                                    range=(0.05, 3.00),
+                                    range=(0.05, 5.00),
                                     key="extra_time",
                                     resolution=0.01,
                                     orientation="h",
@@ -292,6 +304,26 @@ if __name__ == "__main__":
                 if event == sg.WINDOW_CLOSED:
                     self.flag_vc = False
                     exit()
+                if event == "reload_devices":
+                    prev_input = self.window["sg_input_device"].get()
+                    prev_output = self.window["sg_output_device"].get()
+                    input_devices, output_devices, _, _ = self.get_devices(update=True)
+                    if prev_input not in input_devices:
+                        self.config.sg_input_device = input_devices[0]
+                    else:
+                        self.config.sg_input_device = prev_input
+                    self.window["sg_input_device"].Update(values=input_devices)
+                    self.window["sg_input_device"].Update(
+                        value=self.config.sg_input_device
+                    )
+                    if prev_output not in output_devices:
+                        self.config.sg_output_device = output_devices[0]
+                    else:
+                        self.config.sg_output_device = prev_output
+                    self.window["sg_output_device"].Update(values=output_devices)
+                    self.window["sg_output_device"].Update(
+                        value=self.config.sg_output_device
+                    )
                 if event == "start_vc" and self.flag_vc == False:
                     if self.set_values(values) == True:
                         print("using_cuda:" + str(torch.cuda.is_available()))
@@ -361,7 +393,7 @@ if __name__ == "__main__":
         def start_vc(self):
             torch.cuda.empty_cache()
             self.flag_vc = True
-            self.rvc = RVC(
+            self.rvc = rvc_for_realtime.RVC(
                 self.config.pitch,
                 self.config.pth_path,
                 self.config.index_path,
@@ -441,8 +473,9 @@ if __name__ == "__main__":
             """
             接受音频输入
             """
+            channels = 1 if sys.platform == "darwin" else 2
             with sd.Stream(
-                channels=2,
+                channels=channels,
                 callback=self.audio_callback,
                 blocksize=self.block_frame,
                 samplerate=self.config.samplerate,
@@ -479,7 +512,6 @@ if __name__ == "__main__":
             self.input_wav[:] = np.append(self.input_wav[self.block_frame :], indata)
             # infer
             inp = torch.from_numpy(self.input_wav).to(device)
-            ##0
             res1 = self.resampler(inp)
             ###55%
             rate1 = self.block_frame / (
@@ -524,7 +556,11 @@ if __name__ == "__main__":
                 )
                 + 1e-8
             )
-            sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+            if sys.platform == "darwin":
+                _, sola_offset = torch.max(cor_nom[0, 0] / cor_den[0, 0])
+                sola_offset = sola_offset.item()
+            else:
+                sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
             print("sola offset: " + str(int(sola_offset)))
             self.output_wav[:] = infer_wav[sola_offset : sola_offset + self.block_frame]
             self.output_wav[: self.crossfade_frame] *= self.fade_in_window
@@ -545,14 +581,24 @@ if __name__ == "__main__":
                     infer_wav[-self.crossfade_frame :] * self.fade_out_window
                 )
             if self.config.O_noise_reduce:
-                outdata[:] = np.tile(
-                    nr.reduce_noise(
+                if sys.platform == "darwin":
+                    noise_reduced_signal = nr.reduce_noise(
                         y=self.output_wav[:].cpu().numpy(), sr=self.config.samplerate
-                    ),
-                    (2, 1),
-                ).T
+                    )
+                    outdata[:] = noise_reduced_signal[:, np.newaxis]
+                else:
+                    outdata[:] = np.tile(
+                        nr.reduce_noise(
+                            y=self.output_wav[:].cpu().numpy(),
+                            sr=self.config.samplerate,
+                        ),
+                        (2, 1),
+                    ).T
             else:
-                outdata[:] = self.output_wav[:].repeat(2, 1).t().cpu().numpy()
+                if sys.platform == "darwin":
+                    outdata[:] = self.output_wav[:].cpu().numpy()[:, np.newaxis]
+                else:
+                    outdata[:] = self.output_wav[:].repeat(2, 1).t().cpu().numpy()
             total_time = time.perf_counter() - start_time
             self.window["infer_time"].update(int(total_time * 1000))
             print("infer time:" + str(total_time))

@@ -3,7 +3,8 @@
 <h1>Retrieval-based-Voice-Conversion-WebUI</h1>
 一个基于VITS的简单易用的语音转换（变声器）框架<br><br>
 
-[![madewithlove](https://forthebadge.com/images/badges/built-with-love.svg)](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
+[![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=orange
+)](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
 
 <img src="https://counter.seku.su/cmoe?name=rvc&theme=r34" /><br>
 
@@ -19,19 +20,15 @@
 
 ------
 
-[**English**](./docs/README.en.md) | [**中文简体**](./README.md) | [**日本語**](./docs/README.ja.md) | [**한국어**](./docs/README.ko.md) ([**韓國語**](./docs/README.ko.han.md))
+[**English**](./docs/README.en.md) | [**中文简体**](./README.md) | [**日本語**](./docs/README.ja.md) | [**한국어**](./docs/README.ko.md) ([**韓國語**](./docs/README.ko.han.md)) | [**Türkçe**](./docs/README.tr.md)
 
 点此查看我们的[演示视频](https://www.bilibili.com/video/BV1pm4y1z7Gm/) !
 
 > 使用了RVC的实时语音转换: [w-okada/voice-changer](https://github.com/w-okada/voice-changer)
 
-> 使用了RVC变声器训练的人声转木吉他模型在线demo ：https://huggingface.co/spaces/lj1995/vocal2guitar
-
-> RVC人声转吉他效果展示视频 ：https://www.bilibili.com/video/BV19W4y1D7tT/
-
 > 底模使用接近50小时的开源高质量VCTK训练集训练，无版权方面的顾虑，请大家放心使用
 
-> 后续会陆续加入高质量有授权歌声训练集训练底模
+> 请期待RVCv3的底模，参数更大，数据更大，效果更好，基本持平的推理速度，需要训练数据量更少。
 
 ## 简介
 本仓库具有以下特点
@@ -42,11 +39,13 @@
 + 简单易用的网页界面
 + 可调用UVR5模型来快速分离人声和伴奏
 + 使用最先进的[人声音高提取算法InterSpeech2023-RMVPE](#参考项目)根绝哑音问题。效果最好（显著地）但比crepe_full更快、资源占用更小
++ A卡I卡加速支持
 
 ## 环境配置
-可以使用poetry配置环境。
+以下指令需在 Python 版本大于3.8的环境中执行。  
 
-以下指令需在Python版本大于3.8的环境中执行:
+(Windows/Linux)  
+首先通过 pip 安装主要依赖:
 ```bash
 # 安装Pytorch及其核心依赖，若已安装则跳过
 # 参考自: https://pytorch.org/get-started/locally/
@@ -54,7 +53,10 @@ pip install torch torchvision torchaudio
 
 #如果是win系统+Nvidia Ampere架构(RTX30xx)，根据 #21 的经验，需要指定pytorch对应的cuda版本
 #pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
+```
 
+可以使用 poetry 来安装依赖：
+```bash
 # 安装 Poetry 依赖管理工具, 若已安装则跳过
 # 参考自: https://python-poetry.org/docs/#installation
 curl -sSL https://install.python-poetry.org | python3 -
@@ -63,9 +65,21 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
-你也可以通过pip来安装依赖：
+你也可以通过 pip 来安装依赖：
 ```bash
+N卡：
+
 pip install -r requirements.txt
+
+A卡/I卡：
+pip install -r requirements-dml.txt
+
+```
+
+------
+Mac 用户可以通过 `run.sh` 来安装依赖：
+```bash
+sh ./run.sh
 ```
 
 ## 其他预模型准备
@@ -85,7 +99,7 @@ hubert_base.pt
 
 ./pretrained_v2 
 
-如果你正在使用Windows，则你可能需要这个文件，若ffmpeg和ffprobe已安装则跳过; ubuntu/debian 用户可以通过apt install ffmpeg来安装这2个库
+如果你正在使用Windows，则你可能需要这个文件，若ffmpeg和ffprobe已安装则跳过; ubuntu/debian 用户可以通过apt install ffmpeg来安装这2个库, Mac 用户则可以通过brew install ffmpeg来安装 (需要预先安装brew)
 
 ./ffmpeg
 
@@ -99,12 +113,17 @@ https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/ffprobe.exe
 
 https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.pt
 
+    A卡I卡用户需要的dml环境要请下载
+
+    https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.onnx
+
 ```
 之后使用以下指令来启动WebUI:
 ```bash
 python infer-web.py
 ```
-如果你正在使用Windows，你可以直接下载并解压`RVC-beta.7z`，运行`go-web.bat`以启动WebUI。
+
+如果你正在使用Windows 或 macOS，你可以直接下载并解压`RVC-beta.7z`，前者可以运行`go-web.bat`以启动WebUI，后者则运行命令`sh ./run.sh`以启动WebUI。
 
 仓库内还有一份`小白简易教程.doc`以供参考。
 
